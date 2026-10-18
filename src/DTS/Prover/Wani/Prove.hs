@@ -61,7 +61,9 @@ searchProofWithIncrementalDepth a b c d setting timeLimitDiff currentDepth maybe
     let timeLimit = M.maybe M.Nothing (\t -> let timeLimit = Time.addUTCTime t currentTime in (M.Just timeLimit) ) timeLimitDiff in
       searchProof a b c d setting{WB.maxdepth = currentDepth}{WB.timeLimit = timeLimit }
         >>= \result ->
-          D.trace ("d=" ++ (show currentDepth) ++ {--("timeLimitDiff : "++(show timeLimitDiff)++" currentTime : "++(show currentTime)) ++--} (" / timeLimit : "++(show timeLimit))) $ 
+          (if currentDepth < WB.debug setting
+             then D.trace ("d=" ++ show currentDepth ++ " / timeLimit : " ++ show timeLimit)
+             else id) $
           if (null (WB.trees result) && maybe True (currentDepth <) maybeLim)
             then searchProofWithIncrementalDepth a b c d setting timeLimitDiff (currentDepth+1) maybeLim 
             else return result
@@ -81,7 +83,7 @@ prove' QT.ProofSearchSetting{..} (DdB.ProofSearchQuery sig ctx typ) =  -- LiftT 
         WB.maxtime = case maxTime of
                         Just t -> t
                         Nothing -> 100000,
-        WB.debug = -1,
+        WB.debug = debugDepth,
         WB.sStatus = WB.statusDef,
         WB.oracle = oracle,
         WB.oracleThreshold=0.5,

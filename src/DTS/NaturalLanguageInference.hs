@@ -35,6 +35,8 @@ import Control.Monad.IO.Class (liftIO)    --base
 import Control.Applicative ((<|>))        --base
 import Control.Parallel (par,pseq)        --base
 import qualified System.IO as S           --base
+import GHC.Clock (getMonotonicTime)       --base : wani計時用（単調時計）
+import Numeric (showFFloat)               --base : 秒の整形用
 import qualified Data.Char as C           --base
 import qualified Data.Text.Lazy as T      --text
 import qualified Data.Text.Lazy.IO as T   --text
@@ -169,14 +171,33 @@ trawlParseResult (SentenceAndParseTrees _ parseTreeAndFelicityChecks) = do
   (_, parseResult) <- felicityCheckAndMores
   label <- trawlParseResult parseResult
   return label
-trawlParseResult (InferenceResults (QueryAndDiagrams _ resultPos) (QueryAndDiagrams _ resultNeg)) = do
-  ifYes <- liftIO $ ListT.null resultPos
-  ifNo  <- liftIO $ ListT.null resultNeg
+trawlParseResult (InferenceResults (QueryAndDiagrams psqPos resultPos) (QueryAndDiagrams psqNeg resultNeg)) = do
+  ifYes <- liftIO $ timeProofSearch "pos" psqPos (ListT.null resultPos)
+  ifNo  <- liftIO $ timeProofSearch "neg" psqNeg (ListT.null resultNeg)
   return $ case () of
              _ | not ifYes -> JSeM.Yes
                | not ifNo  -> JSeM.No
                | otherwise -> JSeM.Unk
 trawlParseResult NoSentence = fromFoldable []
+
+-- | wani(証明探索)1回分の実時間を計測し、stderr に1行 TSV で吐く。
+--   ListT.null は空判定のために探索を実際に駆動するので、ここが wani の実働点。
+--   フォーマット: WANI_TIME <tag> sec=.. found=.. sig=.. premises=.. goalchars=..
+--   （JSeM-ID は --jsemid で1問ずつ回すため、実行単位＝1問で外側から対応づく）
+timeProofSearch :: String -> DTT.ProofSearchQuery -> IO Bool -> IO Bool
+timeProofSearch tag q act = do
+  t0 <- getMonotonicTime
+  r  <- act
+  t1 <- getMonotonicTime
+  let DTT.ProofSearchQuery sig ctx typ = q
+  S.hPutStrLn S.stderr $ concat
+    [ "WANI_TIME\t", tag
+    , "\tsec=",       showFFloat (Just 4) (t1 - t0) ""
+    , "\tfound=",     show (not r)
+    , "\tsig=",       show (length sig)
+    , "\tpremises=",  show (length ctx)
+    , "\tgoalchars=", show (length (show typ)) ]
+  return r
 
 {-- Express sequential typecheck --}
 sequentialTypeCheckExpress :: CP.ParseSetting -> QT.Prover -> DTT.Signature -> DTT.Context -> Discourse -> NodeSelector -> DiagramSelector -> IO ParseResultExpress
